@@ -1,223 +1,340 @@
 import { useState, useCallback, useEffect } from 'react';
 import './App.css';
 
-// Local services (no Firebase)
-// Firebase Services
-import { authService } from './services/auth';
-import { storeService } from './services/store';
+// Services
+import { proviaStore } from './services/localStore';
+import type { ProviaProfile } from './services/localStore';
 
-// Auth
-import { LoginPage } from './features/auth/components/LoginPage';
+// Data
+import { getTopicForDay } from './data/daySchedule';
 
-// Onboarding
+// Components
 import { AuthorityPicker } from './features/onboarding/pages/AuthorityPicker';
 import type { Authority } from './features/onboarding/types/onboarding.types';
-
-// Quiz
 import { DailyQuestions } from './features/questions/pages/DailyQuestions';
-
-// Progress
 import { StreakCounter } from './features/progress/components/StreakCounter';
 import { StatsCard } from './features/progress/components/StatsCard';
-
-// Social
 import { Leaderboard } from './features/social/pages/Leaderboard';
 import { Achievements } from './features/social/pages/Achievements';
-import { Referral } from './features/social/pages/Referral';
-import { getLevelForXP, getXPProgress } from './features/social/data/social.data';
-
-// Battle & Chat
 import { OpponentSelect } from './features/battle/pages/OpponentSelect';
 import { BattleArena } from './features/battle/pages/BattleArena';
 import { ChatPage } from './features/battle/pages/ChatPage';
 import type { Opponent } from './features/battle/data/battle.data';
+import { getLevelForXP, getXPProgress } from './features/social/data/social.data';
 
-type AppPage = 'login' | 'authority' | 'dashboard' | 'quiz'
-  | 'leaderboard' | 'achievements' | 'referral'
-  | 'battle_select' | 'battle_arena' | 'chat';
-
-interface AppState {
-  page: AppPage;
-  userName: string;
-  email: string;
-  authority: Authority | null;
-  currentDay: number;
-  completedDays: number[];
-  streak: number;
-  xp: number;
-  accuracy: number;
-  quizDay: number;
-  hearts: number;
-  maxHearts: number;
-  unlockedAchievements: string[];
-  referralCount: number;
-  battleOpponent: Opponent | null;
-  battlesWon: number;
-  battlesPlayed: number;
-}
+type AppPage =
+  | 'mode_select'
+  | 'authority'
+  | 'dashboard'
+  | 'quiz'
+  | 'mock_center'
+  | 'mock_quiz'
+  | 'leaderboard'
+  | 'achievements'
+  | 'battle_select'
+  | 'battle_arena'
+  | 'chat'
+  | 'cooldown';
 
 function App() {
-  const [state, setState] = useState<AppState>({
-    page: 'login',
-    userName: '',
-    email: '',
-    authority: null,
-    currentDay: 1,
-    completedDays: [],
-    streak: 0,
-    xp: 0,
-    accuracy: 0,
-    quizDay: 1,
-    hearts: 5,
-    maxHearts: 5,
-    unlockedAchievements: [],
-    referralCount: 0,
-    battleOpponent: null,
-    battlesWon: 0,
-    battlesPlayed: 0,
+  const [profile, setProfile] = useState<ProviaProfile>(() => proviaStore.getProfile());
+  const [page, setPage] = useState<AppPage>(() => {
+    const p = proviaStore.getProfile();
+    if (!p.territory) return 'authority';
+    if (!p.selectedMode) return 'mode_select';
+    return 'dashboard';
   });
+  const [quizDay, setQuizDay] = useState(1);
+  const [battleOpponent, setBattleOpponent] = useState<Opponent | null>(null);
+  const [cooldownMs, setCooldownMs] = useState(0);
 
-  const navigate = useCallback((page: AppPage) => setState(prev => ({ ...prev, page })), []);
-
-  const checkAchievements = useCallback((s: AppState): string[] => {
-    const u: string[] = [];
-    if (s.completedDays.length >= 1 && !s.unlockedAchievements.includes('first_day')) u.push('first_day');
-    if (s.streak >= 3 && !s.unlockedAchievements.includes('streak_3')) u.push('streak_3');
-    if (s.streak >= 7 && !s.unlockedAchievements.includes('streak_7')) u.push('streak_7');
-    if (s.streak >= 14 && !s.unlockedAchievements.includes('streak_14')) u.push('streak_14');
-    if (s.completedDays.length >= 22 && !s.unlockedAchievements.includes('halfway')) u.push('halfway');
-    if (s.completedDays.length >= 45 && !s.unlockedAchievements.includes('complete_45')) u.push('complete_45');
-    if (getLevelForXP(s.xp).level >= 5 && !s.unlockedAchievements.includes('level_5')) u.push('level_5');
-    return u;
-  }, []);
-
-  const level = getLevelForXP(state.xp);
-  const xpProgress = getXPProgress(state.xp);
-
-  // ─── AUTH (Firebase) ───
-  const [loading, setLoading] = useState(true);
-
+  // Cooldown timer
   useEffect(() => {
-    const unsub = authService.onAuthChange(async (user) => {
-      if (user) {
-        // Load or create profile
-        try {
-          let profile = await storeService.loadProfile(user.uid);
-
-          if (!profile) {
-            // New user! Create default profile
-            profile = await storeService.createProfile(user);
-          }
-
-          const territory = profile.territory;
-          setState(prev => ({
-            ...prev,
-            page: territory ? 'dashboard' : 'authority',
-            userName: profile!.displayName,
-            email: profile!.email,
-            authority: territory ? {
-              id: territory,
-              name: territory === 'DHA' ? 'Dubai Health Authority' :
-                territory === 'MOH' ? 'Ministry of Health' :
-                  territory === 'HAAD' ? 'Health Authority - Abu Dhabi' : 'Saudi Commission',
-              flag: '🇦🇪',
-              fullName: territory === 'DHA' ? 'Dubai Health Authority' :
-                territory === 'MOH' ? 'Ministry of Health' :
-                  territory === 'HAAD' ? 'Health Authority - Abu Dhabi' : 'Saudi Commission for Health Specialties',
-              emoji: '🏥',
-              color: territory === 'DHA' ? '#2563eb' :
-                territory === 'MOH' ? '#22c55e' :
-                  territory === 'HAAD' ? '#f59e0b' : '#64748b'
-            } : null,
-            xp: profile!.learningPoints || 0,
-            streak: profile!.streakCount || 0,
-            hearts: profile!.hearts || 5,
-            currentDay: profile!.currentDay || 1,
-            completedDays: profile!.completedDays || [],
-            referralCount: profile!.referralCount || 0,
-            unlockedAchievements: profile!.vaultItems || [],
-          }));
-        } catch (error) {
-          console.error("Error loading profile:", error);
-        }
-      } else {
-        setState(prev => ({ ...prev, page: 'login', userName: '', email: '' }));
-      }
-      setLoading(false);
-    });
-    return unsub;
+    const interval = setInterval(() => {
+      const remaining = proviaStore.getCooldownRemaining();
+      setCooldownMs(remaining);
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  // ─── LOGIN ───
-  if (loading) return <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading Provia...</div>;
+  const navigate = useCallback((p: AppPage) => setPage(p), []);
 
-  if (state.page === 'login') {
-    return <LoginPage onLogin={() => { /* handled by auth listener */ }} />;
-  }
+  const refreshProfile = useCallback(() => {
+    setProfile(proviaStore.getProfile());
+  }, []);
+
+  // Level system still uses HC as the "xp" for display
+  const level = getLevelForXP(profile.heroCredits);
+  const hcProgress = getXPProgress(profile.heroCredits);
 
   // ─── AUTHORITY PICKER ───
-  if (state.page === 'authority') {
+  if (page === 'authority') {
     return (
       <AuthorityPicker
-        selected={state.authority}
-        onSelect={(a) => setState(prev => ({ ...prev, authority: a }))}
+        selected={profile.territory ? {
+          id: profile.territory,
+          name: profile.territory,
+          flag: '🇦🇪',
+          fullName: profile.territory,
+          emoji: '🏥',
+          color: '#2563eb',
+        } : null}
+        onSelect={(a: Authority) => {
+          proviaStore.updateProfile({ territory: a.id });
+          refreshProfile();
+        }}
         onContinue={() => {
-          // Save authority to Firebase
-          if (state.authority) {
-            import('./lib/firebase/config').then(({ auth }) => {
-              if (auth.currentUser) {
-                storeService.updateProfile(auth.currentUser.uid, {
-                  territory: state.authority!.id,
-                  specialty: 'Pharmacist',
-                });
-              }
-            });
-          }
-          navigate('dashboard');
+          navigate('mode_select');
         }}
       />
     );
   }
 
-  // ─── QUIZ ───
-  if (state.page === 'quiz') {
+  // ─── MODE SELECTOR ───
+  if (page === 'mode_select') {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: '#f8fafc',
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+        color: '#1e293b',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        padding: '2rem',
+      }}>
+        <div style={{ maxWidth: '400px', width: '100%', textAlign: 'center' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>💊</div>
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', marginBottom: '0.25rem' }}>
+            Provia
+          </h1>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '2.5rem' }}>
+            Your 45-Day Pharmacist Exam Challenge
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <button onClick={() => {
+              proviaStore.updateProfile({ selectedMode: 'challenge' });
+              refreshProfile();
+              navigate('dashboard');
+            }} style={{
+              padding: '1.5rem',
+              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+              color: '#fff', border: 'none', borderRadius: '1rem',
+              cursor: 'pointer', textAlign: 'left',
+              boxShadow: '0 4px 15px rgba(37, 99, 235, 0.3)',
+            }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>🗺️</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.25rem' }}>45-Day Challenge</div>
+              <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>
+                Master one topic per day. Score 80%+ to unlock the next day.
+              </div>
+            </button>
+
+            <button onClick={() => {
+              proviaStore.updateProfile({ selectedMode: 'mock_center' });
+              refreshProfile();
+              navigate('mock_center');
+            }} style={{
+              padding: '1.5rem',
+              background: 'linear-gradient(135deg, #ea580c, #c2410c)',
+              color: '#fff', border: 'none', borderRadius: '1rem',
+              cursor: 'pointer', textAlign: 'left',
+              boxShadow: '0 4px 15px rgba(234, 88, 12, 0.3)',
+            }}>
+              <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>📝</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.25rem' }}>Mock Test Center</div>
+              <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>
+                Take 120-question mock exams. 2 free tests, then 100 HC each.
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── MOCK TEST CENTER ───
+  if (page === 'mock_center') {
+    const mockStatus = proviaStore.canTakeMockTest(profile);
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: '#f8fafc',
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+        color: '#1e293b',
+        padding: '1.5rem',
+      }}>
+        <div style={{ maxWidth: '520px', margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1.5rem' }}>
+            <button onClick={() => navigate('dashboard')} style={{
+              background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '1.5rem',
+            }}>←</button>
+            <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#0f172a' }}>📝 Mock Test Center</h2>
+          </div>
+
+          {/* HC Balance */}
+          <div style={{
+            background: '#ffffff', borderRadius: '0.85rem', padding: '1rem',
+            marginBottom: '1rem', border: '1px solid #e2e8f0',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Hero Credits</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f59e0b' }}>
+                  💰 {profile.heroCredits} HC
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Free Tests</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#22c55e' }}>
+                  🎟️ {profile.freeMocksRemaining}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Mock Test History */}
+          {profile.mockTestScores.length > 0 && (
+            <div style={{
+              background: '#ffffff', borderRadius: '0.85rem', padding: '1rem',
+              marginBottom: '1rem', border: '1px solid #e2e8f0',
+            }}>
+              <h3 style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569', marginBottom: '0.5rem' }}>
+                Previous Scores
+              </h3>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                {profile.mockTestScores.map((score, i) => (
+                  <span key={i} style={{
+                    padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: 600,
+                    background: score >= 80 ? '#f0fdf4' : '#fef2f2',
+                    color: score >= 80 ? '#15803d' : '#b91c1c',
+                    border: `1px solid ${score >= 80 ? '#bbf7d0' : '#fecaca'}`,
+                  }}>
+                    Mock #{i + 1}: {score}%
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Start Mock Test Button */}
+          <button
+            onClick={() => {
+              if (mockStatus.canTake) {
+                const updatedProfile = proviaStore.startMockTest(profile);
+                setProfile(updatedProfile);
+                navigate('mock_quiz');
+              }
+            }}
+            disabled={!mockStatus.canTake}
+            style={{
+              width: '100%', padding: '1rem',
+              background: mockStatus.canTake ? 'linear-gradient(135deg, #ea580c, #c2410c)' : '#cbd5e1',
+              color: '#fff', border: 'none', borderRadius: '0.75rem',
+              fontSize: '1rem', fontWeight: 700,
+              cursor: mockStatus.canTake ? 'pointer' : 'not-allowed',
+              boxShadow: mockStatus.canTake ? '0 4px 15px rgba(234, 88, 12, 0.3)' : 'none',
+              marginBottom: '0.5rem',
+            }}
+          >
+            📝 Start Mock Test (120 Questions)
+          </button>
+          <p style={{ textAlign: 'center', fontSize: '0.7rem', color: '#64748b' }}>
+            {mockStatus.reason}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── MOCK QUIZ ───
+  if (page === 'mock_quiz') {
     return (
       <DailyQuestions
-        day={state.quizDay}
+        day={-1}
+        isMockTest={true}
         onComplete={(score, total) => {
           const pct = Math.round((score / total) * 100);
-          const xpEarned = score * 10 + (pct === 100 ? 50 : 0);
-          setState(prev => {
-            const ns = {
-              ...prev, page: 'dashboard' as AppPage,
-              completedDays: [...new Set([...prev.completedDays, prev.quizDay])],
-              currentDay: Math.max(prev.currentDay, prev.quizDay + 1),
-              streak: prev.streak + 1, xp: prev.xp + xpEarned, accuracy: pct,
-            };
+          proviaStore.completeMockTest(pct);
+          refreshProfile();
+          navigate('mock_center');
+        }}
+        onBack={() => navigate('mock_center')}
+      />
+    );
+  }
 
-            // Persist to DB
-            import('./lib/firebase/config').then(({ auth }) => {
-              if (auth.currentUser) {
-                // Update main profile
-                storeService.updateProfile(auth.currentUser.uid, {
-                  learningPoints: ns.xp,
-                  streakCount: ns.streak,
-                  currentDay: ns.currentDay,
-                  completedDays: ns.completedDays,
-                });
+  // ─── QUIZ ───
+  if (page === 'quiz') {
+    // Check cooldown
+    if (cooldownMs > 0 && profile.lastFailedDay === quizDay) {
+      const mins = Math.floor(cooldownMs / 60000);
+      const secs = Math.floor((cooldownMs % 60000) / 1000);
+      const topic = getTopicForDay(quizDay);
+      return (
+        <div style={{
+          minHeight: '100vh',
+          background: '#f8fafc',
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          color: '#1e293b',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          padding: '2rem', textAlign: 'center',
+        }}>
+          <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>⏳</div>
+          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#ef4444', marginBottom: '0.5rem' }}>
+            Cooldown Active
+          </h2>
+          <p style={{ color: '#64748b', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+            You scored below 80% on Day {quizDay}. Review <strong>{topic.topic}</strong> before retrying.
+          </p>
+          <div style={{
+            fontSize: '2.5rem', fontWeight: 800, color: '#0f172a',
+            marginBottom: '2rem', fontVariantNumeric: 'tabular-nums',
+          }}>
+            {mins}:{secs.toString().padStart(2, '0')}
+          </div>
 
-                // Save detailed progress for this day
-                storeService.saveDayProgress(auth.currentUser.uid, state.quizDay, {
-                  checkpointScore: score,
-                  setsCompleted: [true, true, true, true, true], // Simplified for now
-                });
-              }
-            });
+          {topic.subtopic && (
+            <div style={{
+              background: '#eff6ff', borderRadius: '0.75rem', padding: '1rem',
+              marginBottom: '1.5rem', maxWidth: '350px', width: '100%',
+              border: '1px solid #dbeafe',
+            }}>
+              <p style={{ fontWeight: 600, fontSize: '0.8rem', color: '#2563eb', marginBottom: '0.25rem' }}>
+                📚 Topics to review:
+              </p>
+              <p style={{ fontSize: '0.8rem', color: '#334155' }}>
+                {topic.topic} — {topic.subtopic}
+              </p>
+            </div>
+          )}
 
-            const na = checkAchievements(ns);
-            if (pct === 100) na.push('perfect_10');
-            return { ...ns, unlockedAchievements: [...new Set([...prev.unlockedAchievements, ...na])] };
-          });
+          <button onClick={() => navigate('dashboard')} style={{
+            padding: '0.75rem 2rem', background: '#f1f5f9', color: '#64748b',
+            border: '1px solid #e2e8f0', borderRadius: '0.75rem',
+            fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer',
+          }}>
+            ← Back to Dashboard
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <DailyQuestions
+        day={quizDay}
+        onComplete={(score, total) => {
+          const pct = Math.round((score / total) * 100);
+          const result = proviaStore.completeDay(quizDay, pct);
+          setProfile(result.profile);
+
+          if (result.passed) {
+            navigate('dashboard');
+          } else {
+            // Cooldown starts — navigate to cooldown view
+            setCooldownMs(proviaStore.getCooldownRemaining());
+            navigate('quiz'); // Stay on quiz page to show cooldown
+          }
         }}
         onBack={() => navigate('dashboard')}
       />
@@ -225,57 +342,60 @@ function App() {
   }
 
   // ─── LEADERBOARD ───
-  if (state.page === 'leaderboard') {
+  if (page === 'leaderboard') {
     return (
-      <Leaderboard currentUserXP={state.xp} currentUserName={state.userName}
-        currentUserStreak={state.streak} currentUserDays={state.completedDays.length}
-        currentUserLevel={level.level} onBack={() => navigate('dashboard')} />
+      <Leaderboard
+        currentUserXP={profile.heroCredits}
+        currentUserName={profile.displayName}
+        currentUserStreak={profile.streakCount}
+        currentUserDays={profile.completedDays.length}
+        currentUserLevel={level.level}
+        onBack={() => navigate('dashboard')}
+      />
     );
   }
 
   // ─── ACHIEVEMENTS ───
-  if (state.page === 'achievements') {
-    return <Achievements unlockedIds={state.unlockedAchievements} onBack={() => navigate('dashboard')} />;
-  }
-
-  // ─── REFERRAL ───
-  if (state.page === 'referral') {
-    return <Referral referralCount={state.referralCount} onBack={() => navigate('dashboard')} />;
+  if (page === 'achievements') {
+    return <Achievements unlockedIds={profile.unlockedAchievements} onBack={() => navigate('dashboard')} />;
   }
 
   // ─── BATTLE SELECT ───
-  if (state.page === 'battle_select') {
+  if (page === 'battle_select') {
     return (
       <OpponentSelect
-        onSelect={(opp) => setState(prev => ({ ...prev, battleOpponent: opp, page: 'battle_arena' }))}
+        onSelect={(opp) => {
+          setBattleOpponent(opp);
+          setPage('battle_arena');
+        }}
         onBack={() => navigate('dashboard')}
       />
     );
   }
 
   // ─── BATTLE ARENA ───
-  if (state.page === 'battle_arena' && state.battleOpponent) {
+  if (page === 'battle_arena' && battleOpponent) {
     return (
-      <BattleArena opponent={state.battleOpponent}
+      <BattleArena
+        opponent={battleOpponent}
         onComplete={(won, xpEarned) => {
-          setState(prev => {
-            const na = won && !prev.unlockedAchievements.includes('battle_win') ? ['battle_win'] : [];
-            return {
-              ...prev, page: 'dashboard', xp: prev.xp + xpEarned,
-              battlesWon: prev.battlesWon + (won ? 1 : 0),
-              battlesPlayed: prev.battlesPlayed + 1, battleOpponent: null,
-              unlockedAchievements: [...new Set([...prev.unlockedAchievements, ...na])],
-            };
-          });
+          const p = proviaStore.getProfile();
+          p.heroCredits += xpEarned;
+          p.battlesWon += won ? 1 : 0;
+          p.battlesPlayed += 1;
+          proviaStore.saveProfile(p);
+          refreshProfile();
+          setBattleOpponent(null);
+          navigate('dashboard');
         }}
         onBack={() => navigate('battle_select')}
       />
     );
   }
 
-  // ─── CHAT ───
-  if (state.page === 'chat') {
-    return <ChatPage userName={state.userName} onBack={() => navigate('dashboard')} />;
+  // ─── CHAT (THE LOUNGE) ───
+  if (page === 'chat') {
+    return <ChatPage userName={profile.displayName} onBack={() => navigate('dashboard')} />;
   }
 
   // ─── DASHBOARD ───
@@ -298,28 +418,26 @@ function App() {
               <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#0f172a' }}>{level.title}</div>
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.2rem' }}>
-            {Array.from({ length: state.maxHearts }, (_, i) => (
-              <span key={i} style={{ fontSize: '1rem', opacity: i < state.hearts ? 1 : 0.2 }}>❤️</span>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f59e0b' }}>💰 {profile.heroCredits} HC</span>
           </div>
         </div>
 
-        {/* XP Bar */}
+        {/* HC Progress Bar */}
         <div style={{
           marginBottom: '1rem', padding: '0.4rem 0.6rem',
           backgroundColor: '#ffffff', borderRadius: '0.6rem',
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.2rem' }}>
-            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{state.xp} XP</span>
-            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{level.maxXP} XP</span>
+            <span style={{ fontSize: '0.65rem', color: '#64748b' }}>{profile.heroCredits} HC</span>
+            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>{level.maxXP} HC</span>
           </div>
           <div style={{ height: '5px', background: '#f1f5f9', borderRadius: '3px' }}>
             <div style={{
               height: '100%', borderRadius: '3px',
               background: 'linear-gradient(90deg, #fbbf24, #f59e0b)',
-              width: `${xpProgress}%`, transition: 'width 0.5s ease',
+              width: `${hcProgress}%`, transition: 'width 0.5s ease',
             }} />
           </div>
         </div>
@@ -331,19 +449,23 @@ function App() {
               fontSize: '1.25rem', fontWeight: 800,
               color: '#0f172a',
               marginBottom: '0.1rem',
-            }}>Hey, {state.userName}! 💊</h1>
+            }}>Hey, {profile.displayName}! 💊</h1>
             <p style={{ fontSize: '0.7rem', color: '#64748b' }}>
-              {state.authority?.emoji} {state.authority?.fullName} • Pharmacist
+              🏥 {profile.territory} • Pharmacist
             </p>
           </div>
-          <StreakCounter count={state.streak} />
+          <StreakCounter count={profile.streakCount} />
         </div>
 
         {/* Stats */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-          <StatsCard label="XP" value={state.xp} icon="⭐" color="#fbbf24" />
-          <StatsCard label="Accuracy" value={`${state.accuracy}%`} icon="🎯" color="#22c55e" />
-          <StatsCard label="Battles" value={`${state.battlesWon}W`} icon="⚔️" color="#f87171" />
+          <StatsCard label="HC" value={profile.heroCredits} icon="💰" color="#fbbf24" />
+          <StatsCard
+            label="Best Score"
+            value={`${profile.dayScores[profile.currentDay] || 0}%`}
+            icon="🎯" color="#22c55e"
+          />
+          <StatsCard label="Battles" value={`${profile.battlesWon}W`} icon="⚔️" color="#f87171" />
         </div>
 
         {/* Quick Actions */}
@@ -352,8 +474,8 @@ function App() {
             { label: 'Ranks', icon: '🏆', page: 'leaderboard' as AppPage },
             { label: 'Badges', icon: '🏅', page: 'achievements' as AppPage },
             { label: 'Battle', icon: '⚔️', page: 'battle_select' as AppPage },
-            { label: 'Chat', icon: '💬', page: 'chat' as AppPage },
-            { label: 'Invite', icon: '🤝', page: 'referral' as AppPage },
+            { label: 'Lounge', icon: '💬', page: 'chat' as AppPage },
+            { label: 'Mocks', icon: '📝', page: 'mock_center' as AppPage },
           ].map(item => (
             <button key={item.label} onClick={() => navigate(item.page)} style={{
               padding: '0.5rem 0.2rem', backgroundColor: '#ffffff',
@@ -367,7 +489,7 @@ function App() {
           ))}
         </div>
 
-        {/* 45-Day Grid */}
+        {/* 45-Day Progress Grid with Topics */}
         <div style={{
           backgroundColor: '#ffffff', borderRadius: '0.85rem',
           padding: '1rem', marginBottom: '1rem',
@@ -375,15 +497,16 @@ function App() {
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-            <h3 style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>45-Day Progress</h3>
-            <span style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 600 }}>{state.completedDays.length}/45</span>
+            <h3 style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>🗺️ 45-Day Roadmap</h3>
+            <span style={{ fontSize: '0.7rem', color: '#22c55e', fontWeight: 600 }}>{profile.completedDays.length}/45</span>
           </div>
           <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
             {Array.from({ length: 45 }, (_, i) => {
               const day = i + 1;
-              const done = state.completedDays.includes(day);
-              const current = day === state.currentDay && !done;
-              const locked = day > state.currentDay;
+              const done = profile.completedDays.includes(day);
+              const current = day === profile.currentDay && !done;
+              const locked = day > profile.currentDay;
+              const topic = getTopicForDay(day);
 
               let bg = '#f1f5f9';
               let border = 'none';
@@ -393,13 +516,21 @@ function App() {
                 bg = '#22c55e';
                 color = '#ffffff';
               } else if (current) {
-                bg = '#eff6ff'; // light blue
+                bg = '#eff6ff';
                 border = '2px solid #2563eb';
                 color = '#2563eb';
               }
 
               return (
-                <button key={day} onClick={() => { if (!locked) setState(prev => ({ ...prev, quizDay: day, page: 'quiz' })); }}
+                <button
+                  key={day}
+                  title={`Day ${day}: ${topic.topic}`}
+                  onClick={() => {
+                    if (!locked) {
+                      setQuizDay(day);
+                      setPage('quiz');
+                    }
+                  }}
                   style={{
                     width: '30px', height: '30px', borderRadius: '5px',
                     border: border,
@@ -408,42 +539,65 @@ function App() {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: '0.6rem', fontWeight: 700,
                     cursor: locked ? 'not-allowed' : 'pointer', opacity: locked ? 0.5 : 1,
-                  }}>
+                  }}
+                >
                   {done ? '✓' : day}
                 </button>
               );
             })}
           </div>
+
+          {/* Current Day Topic Info */}
+          {profile.currentDay <= 45 && (
+            <div style={{
+              marginTop: '0.75rem', padding: '0.6rem', borderRadius: '0.5rem',
+              background: '#eff6ff', border: '1px solid #dbeafe',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: '#2563eb', fontWeight: 600 }}>
+                📖 Day {profile.currentDay}: {getTopicForDay(profile.currentDay).topic}
+              </div>
+              {getTopicForDay(profile.currentDay).subtopic && (
+                <div style={{ fontSize: '0.6rem', color: '#64748b', marginTop: '0.15rem' }}>
+                  {getTopicForDay(profile.currentDay).subtopic}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* CTA */}
+        {/* CTA Buttons */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.6rem' }}>
-          {!state.completedDays.includes(state.currentDay) && state.currentDay <= 45 && (
-            <button onClick={() => setState(prev => ({ ...prev, quizDay: prev.currentDay, page: 'quiz' }))} style={{
+          {!profile.completedDays.includes(profile.currentDay) && profile.currentDay <= 45 && (
+            <button onClick={() => {
+              setQuizDay(profile.currentDay);
+              setPage('quiz');
+            }} style={{
               flex: 2, padding: '0.8rem',
-              background: '#2563eb', // Solid blue
+              background: '#2563eb',
               color: '#fff', border: 'none', borderRadius: '0.7rem',
               fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer',
               boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.2)',
-            }}>📝 Day {state.currentDay}</button>
+            }}>📝 Day {profile.currentDay}</button>
           )}
-          <button onClick={() => navigate('battle_select')} style={{
+          <button onClick={() => navigate('mock_center')} style={{
             flex: 1, padding: '0.8rem',
-            background: '#ea580c', // Orange
+            background: '#ea580c',
             color: '#fff', border: 'none', borderRadius: '0.7rem',
             fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer',
             boxShadow: '0 4px 6px -1px rgba(234, 88, 12, 0.2)',
-          }}>⚔️ Battle</button>
+          }}>📝 Mock Test</button>
         </div>
 
-        {/* Logout */}
+        {/* Mode Switch */}
         <button onClick={() => {
-          authService.logout();
+          proviaStore.updateProfile({ selectedMode: null });
+          refreshProfile();
+          navigate('mode_select');
         }} style={{
           width: '100%', padding: '0.5rem', background: 'transparent',
-          color: '#ef4444', border: '1px solid #fecaca', borderRadius: '0.5rem', fontSize: '0.7rem', cursor: 'pointer',
-        }}>🚪 Logout</button>
-
+          color: '#64748b', border: '1px solid #e2e8f0', borderRadius: '0.5rem',
+          fontSize: '0.7rem', cursor: 'pointer',
+        }}>🔄 Switch Mode</button>
 
       </div>
 
@@ -459,11 +613,11 @@ function App() {
         {[
           { icon: '🏠', label: 'Home', page: 'dashboard' as AppPage },
           { icon: '⚔️', label: 'Battle', page: 'battle_select' as AppPage },
-          { icon: '💬', label: 'Chat', page: 'chat' as AppPage },
+          { icon: '💬', label: 'Lounge', page: 'chat' as AppPage },
           { icon: '🏆', label: 'Ranks', page: 'leaderboard' as AppPage },
           { icon: '🏅', label: 'Badges', page: 'achievements' as AppPage },
         ].map(item => {
-          const active = state.page === item.page;
+          const active = page === item.page;
           return (
             <button key={item.label} onClick={() => navigate(item.page)} style={{
               background: 'none', border: 'none', cursor: 'pointer',

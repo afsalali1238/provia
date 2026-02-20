@@ -35,7 +35,7 @@ export const OpponentSelect: React.FC<OpponentSelectProps> = ({ onSelect, onBack
                     textAlign: 'center',
                 }}>
                     <p style={{ fontSize: '0.85rem', color: '#b91c1c', fontWeight: 500 }}>
-                        ⚡ 5 questions • 15 seconds each • Winner takes 100 XP
+                        ⚡ 5 questions • 15 seconds each • Winner takes 100 HC
                     </p>
                 </div>
 

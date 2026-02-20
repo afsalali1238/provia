@@ -66,7 +66,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                                 <div style={{ fontSize: '0.75rem', fontWeight: 600, color: entry.isCurrentUser ? '#2563eb' : '#334155' }}>
                                     {entry.name.split(' ')[0]}
                                 </div>
-                                <div style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>{entry.xp} XP</div>
+                                <div style={{ fontSize: '0.65rem', color: '#f59e0b', fontWeight: 700 }}>{entry.xp} HC</div>
                                 <div style={{
                                     width: '100%', height: heights[i],
                                     background: entry.isCurrentUser
@@ -101,7 +101,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                                 </div>
                             </div>
                             <span style={{ fontSize: '0.85rem', fontWeight: 700, color: '#f59e0b' }}>{entry.xp}</span>
-                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>XP</span>
+                            <span style={{ fontSize: '0.65rem', color: '#94a3b8' }}>HC</span>
                         </div>
                     ))}
                 </div>
